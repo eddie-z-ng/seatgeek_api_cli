@@ -10,8 +10,10 @@ import requests
 import json
 import readline
 
-from clint.textui import colored, indent, puts
+from clint.textui import colored, indent, progress, puts
 
+from time import sleep
+from random import random
 
 
 def pretty_dict(d):
@@ -36,29 +38,65 @@ def pretty_dict(d):
     print '}'
 
 def call_api_with_results(url):
-    r = requests.get(url)
+
+    print colored.cyan("Making request: %s" % (url))
+    r = requests.get(url, stream=True, timeout=5)
+    total_length = int(r.headers.get('content-length'))
+    content = ''
+    for chunk in progress.bar(r.iter_content(chunk_size=1024),
+                                             expected_size=(total_length/1024) + 1,
+                                             label=colored.green("  KB received: ")):
+        content += chunk
 
     if (r.status_code >= 200 and r.status_code < 300):
-        print colored.green(str(r.status_code))
+        print 'Status Code: %s' % colored.green(str(r.status_code))
     else:
-        print colored.red(str(r.status_code))
+        print 'Status Code: %s' % colored.red(str(r.status_code))
 
     print colored.cyan('Headers:')
     pretty_dict(r.headers)
 
-    parsed_content = json.loads(r.content)
+    parsed_content = json.loads(content)
     print colored.magenta('Content:')
     print json.dumps(parsed_content, indent=2, sort_keys=True)
 
+
+class Command(object):
+    _options = ['id']
+    @classmethod
+    def get_options(cls):
+        return cls._options
+
+class Event(Command):
+    _options = ['id', 'date', 'name']
+
+class Performer(Command):
+    _options = ['id', 'date', 'name']
+
+class Venue(Command):
+    _options = ['id', 'date', 'name']
+
+
+supported_commands = { 'events': Event }
 
 if __name__ == '__main__':
 
     print "Welcome to the SeatGeek API Explorer!"
 
     while True:
-        in_data = raw_input(colored.yellow('>>  '))
+        in_data = raw_input(colored.yellow('>>  ')).strip().split()
 
         if len(in_data) != 0:
-            print in_data
+            command = in_data[0]
 
-            call_api_with_results("http://api.seatgeek.com/2/events?venue.state=NY")
+            if command in supported_commands:
+
+                print supported_commands[command].get_options()
+
+                try:
+                    call_api_with_results("http://api.seatgeek.com/2/events?venue.state=NY")
+
+                except Exception, e:
+                    print colored.red('Exception: %s. Please try again.' % e)
+            else:
+                print colored.red('invalid command')
