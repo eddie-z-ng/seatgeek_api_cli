@@ -89,7 +89,6 @@ def pretty_dict(d):
     print '}'
 
 def call_api_with_results(url):
-
     print colored.cyan("Making request: %s" % (url))
     r = requests.get(url, stream=True, timeout=5)
 
@@ -120,8 +119,11 @@ class Command(object):
     _base_url = ''
     _options = ['id']
     _params = []
-    _arguments = []
-    _options = []
+    _arguments = ['id']
+    _geolocation_args = []
+    _pagination_args = ['per_page', 'page']
+    _filtering_args = []
+    _sorting_args = ['sort']
 
     @classmethod
     def get_options(cls):
@@ -136,14 +138,22 @@ class Command(object):
         return cls._arguments
 
     @classmethod
+    def get_all_arguments(cls):
+        return cls._arguments + cls._geolocation_args + cls._pagination_args + cls._sorting_args
+
+    @classmethod
     def whitelist_arguments(cls, **kwargs):
         if 'param_id' in kwargs:
             if not re.match('^\d+$', kwargs['param_id']):
                 raise Exception('invalid param id: %s. Numeric values only' % kwargs['param_id'])
         else:
+
             for key, value in kwargs.iteritems():
-                if key not in cls._arguments:
-                    raise Exception('invalid argument: <%s: %s>' % (key,value))
+                if (key not in cls._arguments and
+                   key not in cls._geolocation_arguments and
+                   key not in cls._pagination_args and
+                   key not in cls._sorting_args):
+                    raise Exception('invalid argument: <%s: %s>' % (key, value))
 
     @classmethod
     def construct_api_call(cls, **kwargs):
@@ -158,47 +168,88 @@ class Command(object):
 
         return api_route
 
-
-# class FeatureCommand(Command):
-#     _feature_arguments = ['geoip', 'lat', 'lon', 'range']
-
+class DateTime(object):
+    fields = ['datetime_local']
 
 class Event(Command):
     _base_url = 'http://api.seatgeek.com/2/events'
     _params = ['id']
-    _arguments = ['id', 'venue', 'datetime', 'query', 'taxonomies', 'geoip', 'lat', 'lon', 'range', 'per_page', 'page', 'sort', 'listing_count.gt']
-    _options = ['id', 'date', 'name']
+    _arguments = ['id', 'performers', 'venue', 'datetime', 'q', 'taxonomies']
+    _geolocation_args = ['geoip', 'lat', 'lon', 'range']
+    _filtering_args = ['listing_count', 'average_price', 'lowest_price', 'highest_price']
 
 class Performer(Command):
     _base_url = 'http://api.seatgeek.com/2/performers'
     _params = ['id']
-    _arguments = ['id', 'slug', 'query', 'taxonomies']
-    _options = ['id', 'date', 'name']
+    _arguments = ['id', 'slug', 'q', 'taxonomies']
+
+    fields = ['id', 'slug']
 
 class Venue(Command):
     _base_url = 'http://api.seatgeek.com/2/venues'
     _params = ['id']
-    _arguments = ['id', 'city', 'state', 'country', 'postal_code', 'query']
-    _options = ['id', 'date', 'name']
+    _arguments = ['id', 'city', 'state', 'country', 'postal_code', 'q']
+    _geolocation_args = ['geoip', 'lat', 'lon', 'range']
+
+    fields = ['city', 'id', 'state']
 
 class Taxonomy(Command):
     _base_url = 'http://api.seatgeek.com/2/taxonomies'
 
-# requires Authentication
-class Recommendation(Command):
-    _base_url = 'http://api.seatgeek.com/2/recommendations'
+    fields = ['name', 'id', 'parent_id']
 
-# requires Authentication
-class RecommendationPerformer(Command):
-    _base_url = 'http://api.seatgeek.com/2/recommendations/performers'
+# # requires Authentication
+# class Recommendation(Command):
+#     _base_url = 'http://api.seatgeek.com/2/recommendations'
 
-class Help(Command):
-    _options = []
+# # requires Authentication
+# class RecommendationPerformer(Command):
+#     _base_url = 'http://api.seatgeek.com/2/recommendations/performers'
 
-# class SupportedCommand(object):
-#     supported_commands = { 'help': Help, 'events': Event, 'venues': Venue, 'performers': Performer }
 
-supported_commands = { 'help': Help, 'events': Event, 'venues': Venue, 'performers': Performer }
+def get_help():
+    for key in supported_commands.keys():
+        print colored.magenta('\t%s' % key)
+
+def get_events(**kwargs):
+    Event.whitelist_arguments()
+    api_call = Event.construct_api_call(**args_dict)
+    call_api_with_results(api_call)
+
+def get_venues(**kwargs):
+    Venue.whitelist_arguments()
+    api_call = Venue.construct_api_call(**args_dict)
+    call_api_with_results(api_call)
+
+def get_performers(**kwargs):
+    Performer.whitelist_arguments()
+    api_call = Performer.construct_api_call(**args_dict)
+    call_api_with_results(api_call)
+
+def get_taxonomies(**kwargs):
+    Taxonomy.whitelist_arguments()
+    api_call = Taxonomy.construct_api_call(**args_dict)
+    call_api_with_results(api_call)
+
+def prompt_exit():
+    yes = set(['yes', 'y', 'ye', ''])
+    no = set(['no', 'n'])
+    choice = raw_input(colored.yellow('Are you sure you want to exit? [y/n] ')).lower()
+    if choice in yes:
+        exit()
+    elif choice in no:
+        return False
+    else:
+        prompt_exit()
+
+supported_commands = {
+    'exit': prompt_exit,
+    'help': get_help,
+    'events': get_events,
+    'venues': get_venues,
+    'performers': get_performers,
+    'taxonomies': get_taxonomies
+        }
 
 def parse_args_to_dict(arg_list):
     arg_dict = {}
@@ -212,6 +263,7 @@ def parse_args_to_dict(arg_list):
 
 if __name__ == '__main__':
     image_to_ascii("seatgeek.png")
+    # image_to_ascii("seatgeek-logo_300.jpg")
     print "Welcome to the SeatGeek API Explorer!"
 
     while True:
@@ -222,18 +274,13 @@ if __name__ == '__main__':
 
             if command in supported_commands:
 
-                expected_args = supported_commands[command].get_options()
-
                 try:
                     args_dict = {}
                     if len(in_data) > 1:
                         actual_args = in_data[1:]
                         args_dict = parse_args_to_dict(actual_args)
-                        supported_commands[command].whitelist_arguments(**args_dict)
 
-                    api_call = supported_commands[command].construct_api_call(**args_dict)
-
-                    call_api_with_results(api_call)
+                    supported_commands[command](**args_dict)
 
                 except Exception, e:
                     print colored.red('Exception: %s. Please try again.' % e)
