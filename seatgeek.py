@@ -5,6 +5,7 @@ import requests
 import json
 import readline
 import re
+from pprint import pprint
 
 from clint.textui import colored, indent, progress, puts
 
@@ -13,39 +14,39 @@ from PIL import Image, ImageOps
 import random
 from bisect import bisect
 
-# image to ascii adopted from Steven Kay's implementation:
-# http://stevendkay.wordpress.com/2009/09/08/generating-ascii-art-from-photographs-in-python/
-
-# greyscale.. the following strings represent
-# 7 tonal ranges, from lighter to darker.
-# for a given pixel tonal level, choose a character
-# at random from that range.
-
-greyscale = [
-            " ",
-            " ",
-            ".,-",
-            "_ivc=!/|\\~",
-            "gjez2]/(YL)t[+T7Vf",
-            "mdK4ZGbNDXY5P*Q",
-            "W8KMA",
-            "#%$"
-            ]
-
-# using the bisect class to put luminosity values
-# in various ranges.
-# these are the luminosity cut-off points for each
-# of the 7 tonal levels. At the moment, these are 7 bands
-# of even width, but they could be changed to boost
-# contrast or change gamma, for example.
-
-zonebounds = [36, 72, 108, 144, 180, 216, 252]
-
-# open image and resize
-# experiment with aspect ratios according to font
-
 
 def image_to_ascii(image_name):
+    # image to ascii adopted from Steven Kay's implementation:
+    # http://stevendkay.wordpress.com/2009/09/08/generating-ascii-art-from-photographs-in-python/
+
+    # greyscale.. the following strings represent
+    # 7 tonal ranges, from lighter to darker.
+    # for a given pixel tonal level, choose a character
+    # at random from that range.
+
+    greyscale = [
+                " ",
+                " ",
+                ".,-",
+                "_ivc=!/|\\~",
+                "gjez2]/(YL)t[+T7Vf",
+                "mdK4ZGbNDXY5P*Q",
+                "W8KMA",
+                "#%$"
+                ]
+
+    # using the bisect class to put luminosity values
+    # in various ranges.
+    # these are the luminosity cut-off points for each
+    # of the 7 tonal levels. At the moment, these are 7 bands
+    # of even width, but they could be changed to boost
+    # contrast or change gamma, for example.
+
+    zonebounds = [36, 72, 108, 144, 180, 216, 252]
+
+    # open image and resize
+    # experiment with aspect ratios according to font
+
     im=Image.open(image_name)
     width, height = im.size
     new_width = 80
@@ -114,6 +115,15 @@ def call_api_with_results(url):
     print colored.magenta('Content:')
     print json.dumps(parsed_content, indent=2, sort_keys=True)
 
+def parse_args_to_dict(arg_list):
+    arg_dict = {}
+    for arg in arg_list:
+        if '=' not in arg:
+            arg_dict['param_id'] = arg
+        else:
+            arg = arg.split('=')
+            arg_dict[arg[0]] = arg[1]
+    return arg_dict
 
 class Command(object):
     _base_url = ''
@@ -208,8 +218,16 @@ class Taxonomy(Command):
 
 
 def get_help():
+    print colored.magenta('Arguments can be specified with "=" between key and value')
+    print colored.magenta('e.g.\tevents geoip=true range=12mi')
+    print colored.magenta('NOTE: Any argument without an "=" will be assumed to be a parameter and override any other arguments')
     for key in supported_commands.keys():
         print colored.magenta('\t%s' % key)
+
+        if supported_commands[key][1]:
+            all_args = supported_commands[key][1].get_all_arguments()
+            # print colored.cyan('\t\t%s' % all_args)
+            pprint(all_args, indent=8)
 
 def get_events(**kwargs):
     Event.whitelist_arguments()
@@ -242,45 +260,34 @@ def prompt_exit():
     else:
         prompt_exit()
 
-supported_commands = {
-    'exit': prompt_exit,
-    'help': get_help,
-    'events': get_events,
-    'venues': get_venues,
-    'performers': get_performers,
-    'taxonomies': get_taxonomies
-        }
 
-def parse_args_to_dict(arg_list):
-    arg_dict = {}
-    for arg in arg_list:
-        if '=' not in arg:
-            arg_dict['param_id'] = arg
-        else:
-            arg = arg.split('=')
-            arg_dict[arg[0]] = arg[1]
-    return arg_dict
+supported_commands = {
+    'exit': (prompt_exit, None),
+    'help': (get_help, None),
+    'events': (get_events, Event),
+    'venues': (get_venues, Venue),
+    'performers': (get_performers, Performer),
+    'taxonomies': (get_taxonomies, None)
+        }
 
 if __name__ == '__main__':
     image_to_ascii("seatgeek.png")
     # image_to_ascii("seatgeek-logo_300.jpg")
-    print "Welcome to the SeatGeek API Explorer!"
+    print colored.blue("Welcome to the SeatGeek API Explorer!")
 
     while True:
         in_data = raw_input(colored.yellow('>>  ')).strip().split()
 
         if len(in_data) != 0:
             command = in_data[0]
-
             if command in supported_commands:
-
                 try:
                     args_dict = {}
                     if len(in_data) > 1:
                         actual_args = in_data[1:]
                         args_dict = parse_args_to_dict(actual_args)
 
-                    supported_commands[command](**args_dict)
+                    supported_commands[command][0](**args_dict)
 
                 except Exception, e:
                     print colored.red('Exception: %s. Please try again.' % e)
