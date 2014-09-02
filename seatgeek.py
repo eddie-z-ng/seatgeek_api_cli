@@ -116,16 +116,21 @@ def call_api_with_results(url):
     print json.dumps(parsed_content, indent=2, sort_keys=True)
 
 def parse_args_to_dict(arg_list):
+    """ Parses list of arguments into a dict with 'params' key -> ordered list
+        of params and all other keys -> query argument"""
     arg_dict = {}
+    arg_dict['params'] = []
     for arg in arg_list:
         if '=' not in arg:
-            arg_dict['param_id'] = arg
+            arg_dict['params'].append(arg)
         else:
             arg = arg.split('=')
-            arg_dict[arg[0]] = arg[1]
+            if len(arg) > 1:
+                arg_dict[arg[0]] = arg[1]
     return arg_dict
 
 class Command(object):
+    _info_text = "No information provided"
     _base_url = ''
     _options = ['id']
     _params = []
@@ -138,6 +143,10 @@ class Command(object):
     @classmethod
     def get_options(cls):
         return cls._options
+
+    @classmethod
+    def get_info_text(cls):
+        return cls._info_text
 
     @classmethod
     def get_params(cls):
@@ -166,6 +175,13 @@ class Command(object):
                     raise Exception('invalid argument: <%s: %s>' % (key, value))
 
     @classmethod
+    def run_command(cls, *args):
+        args_dict = parse_args_to_dict(*args)
+        cls.whitelist_arguments(**args_dict)
+        api_call = cls.construct_api_call(**args_dict)
+        call_api_with_results(api_call)
+
+    @classmethod
     def construct_api_call(cls, **kwargs):
         api_route = cls._base_url
         param_id = kwargs.pop('param_id', None)
@@ -181,7 +197,73 @@ class Command(object):
 class DateTime(object):
     fields = ['datetime_local']
 
+class ExitCommand(Command):
+    _info_text = "Exits the program"
+    @classmethod
+    def run_command(cls, *args):
+        yes = set(['yes', 'y', 'ye', ''])
+        no = set(['no', 'n'])
+        choice = raw_input(colored.yellow('Are you sure you want to exit? [y/n] ')).lower()
+        if choice in yes:
+            exit()
+        elif choice in no:
+            return False
+        else:
+            cls.run_command()
+
+
+class HelpCommand(Command):
+    _info_text = "Returns help information for the program"
+
+    @classmethod
+    def run_command(cls, *args):
+        requested_keys = { k: True for k in args[0]}.keys()
+        all_supported_keys = [x for x in requested_keys if x in supported_commands]
+
+        if len(all_supported_keys):
+            # command(s) specified, print help for specified command
+            valid_help_keys = all_supported_keys
+
+            print colored.magenta('Parameters can be specified in order they should appear')
+            print colored.magenta('Arguments can be specified with "=" between key and value')
+            print colored.magenta('\te.g.\tevents 12 geoip=true range=12mi')
+            print colored.magenta('\t [PARAMS]: 12 \t [ARGS]: { geoip: true, range: 12mi }')
+
+            for key in valid_help_keys:
+                if key == "help":
+                    print colored.cyan('  [%s] takes any of the following arguments' % key)
+                    all_args = [x for x in supported_commands.keys() if x != "help"]
+                    pprint(all_args, indent=8)
+                elif supported_commands[key]:
+                    print colored.cyan('  [%s] takes any of the following arguments' % key)
+                    all_args = supported_commands[key].get_all_arguments()
+                    pprint(all_args, indent=8)
+        else:
+            # print supported commands
+            valid_help_keys = supported_commands.keys()
+
+            print colored.blue('  Type `help [command1] [command2] ...` to get more information.\n  The following commands are supported:')
+            for key in valid_help_keys:
+                print colored.cyan('  [%s] - %s' % (key, supported_commands[key].get_info_text()))
+
+
+
+class SetAPIKey(Command):
+    _info_text = "Sets the SeatGeek API client key"
+
+    @classmethod
+    def get_api_key(cls):
+        return _api_key
+
+    @classmethod
+    def run_command(cls, *args):
+        if len(args[0]) > 0:
+            _api_key = args[0][0]
+        else:
+            raise Exception('no api client key given')
+
 class Event(Command):
+    _info_text = "Gets Events and returns JSON"
     _base_url = 'http://api.seatgeek.com/2/events'
     _params = ['id']
     _arguments = ['id', 'performers', 'venue', 'datetime', 'q', 'taxonomies']
@@ -189,6 +271,7 @@ class Event(Command):
     _filtering_args = ['listing_count', 'average_price', 'lowest_price', 'highest_price']
 
 class Performer(Command):
+    _info_text = "Gets Performers and returns JSON"
     _base_url = 'http://api.seatgeek.com/2/performers'
     _params = ['id']
     _arguments = ['id', 'slug', 'q', 'taxonomies']
@@ -196,6 +279,7 @@ class Performer(Command):
     fields = ['id', 'slug']
 
 class Venue(Command):
+    _info_text = "Gets Venues and returns JSON"
     _base_url = 'http://api.seatgeek.com/2/venues'
     _params = ['id']
     _arguments = ['id', 'city', 'state', 'country', 'postal_code', 'q']
@@ -204,6 +288,8 @@ class Venue(Command):
     fields = ['city', 'id', 'state']
 
 class Taxonomy(Command):
+    _info_text = "Gets Taxonomies and returns JSON"
+
     _base_url = 'http://api.seatgeek.com/2/taxonomies'
 
     fields = ['name', 'id', 'parent_id']
@@ -217,57 +303,14 @@ class Taxonomy(Command):
 #     _base_url = 'http://api.seatgeek.com/2/recommendations/performers'
 
 
-def get_help():
-    print colored.magenta('Arguments can be specified with "=" between key and value')
-    print colored.magenta('e.g.\tevents geoip=true range=12mi')
-    print colored.magenta('NOTE: Any argument without an "=" will be assumed to be a parameter and override any other arguments')
-    for key in supported_commands.keys():
-        print colored.magenta('\t%s' % key)
-
-        if supported_commands[key][1]:
-            all_args = supported_commands[key][1].get_all_arguments()
-            # print colored.cyan('\t\t%s' % all_args)
-            pprint(all_args, indent=8)
-
-def get_events(**kwargs):
-    Event.whitelist_arguments()
-    api_call = Event.construct_api_call(**args_dict)
-    call_api_with_results(api_call)
-
-def get_venues(**kwargs):
-    Venue.whitelist_arguments()
-    api_call = Venue.construct_api_call(**args_dict)
-    call_api_with_results(api_call)
-
-def get_performers(**kwargs):
-    Performer.whitelist_arguments()
-    api_call = Performer.construct_api_call(**args_dict)
-    call_api_with_results(api_call)
-
-def get_taxonomies(**kwargs):
-    Taxonomy.whitelist_arguments()
-    api_call = Taxonomy.construct_api_call(**args_dict)
-    call_api_with_results(api_call)
-
-def prompt_exit():
-    yes = set(['yes', 'y', 'ye', ''])
-    no = set(['no', 'n'])
-    choice = raw_input(colored.yellow('Are you sure you want to exit? [y/n] ')).lower()
-    if choice in yes:
-        exit()
-    elif choice in no:
-        return False
-    else:
-        prompt_exit()
-
-
 supported_commands = {
-    'exit': (prompt_exit, None),
-    'help': (get_help, None),
-    'events': (get_events, Event),
-    'venues': (get_venues, Venue),
-    'performers': (get_performers, Performer),
-    'taxonomies': (get_taxonomies, None)
+    'exit': ExitCommand,
+    'help': HelpCommand,
+    'events': Event,
+    'venues': Venue,
+    'performers': Performer,
+    'taxonomies': Taxonomy,
+    'apikey': SetAPIKey
         }
 
 if __name__ == '__main__':
@@ -278,18 +321,15 @@ if __name__ == '__main__':
     while True:
         in_data = raw_input(colored.yellow('>>  ')).strip().split()
 
-        if len(in_data) != 0:
+        if len(in_data) > 0:
             command = in_data[0]
             if command in supported_commands:
                 try:
-                    args_dict = {}
-                    if len(in_data) > 1:
-                        actual_args = in_data[1:]
-                        args_dict = parse_args_to_dict(actual_args)
 
-                    supported_commands[command][0](**args_dict)
+                    args = in_data[1:]
+                    supported_commands[command].run_command(args)
 
                 except Exception, e:
-                    print colored.red('Exception: %s. Please try again.' % e)
+                    print colored.red('<%s>. Please try again.' % e)
             else:
                 print colored.red('invalid command')
