@@ -132,141 +132,8 @@ def parse_args_to_dict(arg_list):
                 arg_dict[arg[0]] = arg[1]
     return arg_dict
 
-class Command(object):
-    _info_text = "No information provided"
-    _base_url = ''
-    _default_args = {}
 
-    @classmethod
-    def get_info_text(cls):
-        return cls._info_text
-
-    @classmethod
-    def get_all_default_args(cls):
-        possible_args = {k:v for k,v in cls._default_args.iteritems()}
-        return possible_args
-
-    @classmethod
-    def get_help_text(cls, **kwargs):
-        all_possible_args = sorted(cls.get_all_default_args().keys())
-        name = kwargs.get('name', cls.__name__)
-        if len(all_possible_args) > 0:
-            print colored.cyan("Possible arguments for %s: " % name)
-            for k in sorted(cls.get_all_default_args().keys()):
-                print "\t <%s>" % k
-        else:
-            print colored.cyan("No arguments needed for %s" % name)
-
-    @classmethod
-    def validate_arguments(cls, **kwargs):
-        all_args = kwargs.iteritems()
-        possible_cls_args = cls.get_all_default_args()
-
-        # valid_cls_args = {k:v for k,v in all_args if k in possible_cls_args
-        #                   and possible_cls_args[k](v)}
-
-        valid_cls_args = {}
-        for k,v in all_args:
-            if k in possible_cls_args:
-                validate_fn = possible_cls_args[k]
-
-                try:
-                    if validate_fn(v):
-                        valid_cls_args[k] = v
-                except Exception, e:
-                    raise Exception('  %s: %s' % (k, e))
-
-        return valid_cls_args
-
-
-    @classmethod
-    def run_command(cls, *args):
-        args_dict = parse_args_to_dict(*args)
-        args_dict = cls.validate_arguments(**args_dict)
-        api_call = cls.construct_api_call(**args_dict)
-        call_api_with_results(api_call)
-
-    @classmethod
-    def construct_api_call(cls, **kwargs):
-        api_route = cls._base_url
-        params = kwargs.pop('params', None)
-        if params:
-            for p in params:
-                api_route += '/' + p
-
-        query_args = ['%s=%s'%(k,v) for k,v in kwargs.iteritems()]
-        if len(query_args) > 0:
-            api_route += '?' + '&'.join(query_args)
-
-        return api_route
-
-
-class ExitCommand(Command):
-    _info_text = "Exits the program"
-
-    @classmethod
-    def run_command(cls, *args):
-        yes = set(['yes', 'y', 'ye', ''])
-        no = set(['no', 'n'])
-        choice = raw_input(colored.yellow('Are you sure you want to exit? [y/n] ')).lower()
-        if choice in yes:
-            exit()
-        elif choice in no:
-            return False
-        else:
-            cls.run_command()
-
-
-class HelpCommand(Command):
-    _info_text = "Returns help information for the program"
-
-    @classmethod
-    def run_command(cls, *args):
-        requested_keys = { k: True for k in args[0]}.keys()
-        all_supported_keys = [x for x in requested_keys if x in supported_commands]
-
-        if len(all_supported_keys):
-            # command(s) specified, print help for specified command
-            valid_help_keys = all_supported_keys
-
-            print colored.magenta('Parameters can be specified in order they should appear')
-            print colored.magenta('Arguments can be specified with "=" between key and value')
-            print colored.magenta('\te.g.\tevents 12 venue.state=NY')
-            print colored.magenta('\t [PARAMS]: 12 \t [ARGS]: { "venue.state": "NY" }')
-
-            for key in valid_help_keys:
-                if key == "help":
-                    print colored.cyan('  [%s] takes any of the following arguments' % key)
-                    all_args = [x for x in supported_commands.keys() if x != "help"]
-                    pprint(all_args, indent=8)
-
-                elif supported_commands[key]:
-                    supported_commands[key].get_help_text(name=key)
-        else:
-            # print supported commands
-            valid_help_keys = supported_commands.keys()
-
-            print colored.blue('  Type `help [command1] [command2] ...` to get more information.\n  The following commands are supported:')
-            for key in valid_help_keys:
-                print colored.cyan('  [%s] - %s' % (key, supported_commands[key].get_info_text()))
-
-
-
-class SetAPIKey(Command):
-    _info_text = "Sets the SeatGeek API client key"
-
-    @classmethod
-    def get_api_key(cls):
-        return _api_key
-
-    @classmethod
-    def run_command(cls, *args):
-        if len(args[0]) > 0:
-            _api_key = args[0][0]
-        else:
-            raise Exception('no api client key given')
-
-
+# decorators
 def raise_validation_text(func):
     def inner(val):
         res = func(val)
@@ -383,6 +250,142 @@ def is_lon_deg(val):
 @add_doc('Should be integer followed by mi or km')
 def is_range_str(val):
     return re.match('^(\d+(km|mi))$', val)
+
+
+class Command(object):
+    _info_text = "No information provided"
+    _base_url = ''
+    _default_args = {}
+
+    @classmethod
+    def get_info_text(cls):
+        return cls._info_text
+
+    @classmethod
+    def get_all_default_args(cls):
+        possible_args = {k:v for k,v in cls._default_args.iteritems()}
+        return possible_args
+
+    @classmethod
+    def get_help_text(cls, **kwargs):
+        all_possible_args = sorted(cls.get_all_default_args().keys())
+        name = kwargs.get('name', cls.__name__)
+        if len(all_possible_args) > 0:
+            print colored.cyan("Possible arguments for %s: " % name)
+            for k in sorted(cls.get_all_default_args().keys()):
+                print "\t <%s>" % k
+        else:
+            print colored.cyan("No arguments needed for %s" % name)
+
+    @classmethod
+    def validate_arguments(cls, **kwargs):
+        all_args = kwargs.iteritems()
+        possible_cls_args = cls.get_all_default_args()
+
+        # valid_cls_args = {k:v for k,v in all_args if k in possible_cls_args
+        #                   and possible_cls_args[k](v)}
+
+        valid_cls_args = {}
+        for k,v in all_args:
+            if k in possible_cls_args:
+                validate_fn = possible_cls_args[k]
+
+                try:
+                    if validate_fn(v):
+                        valid_cls_args[k] = v
+                except Exception, e:
+                    raise Exception('  %s: %s' % (k, e))
+
+        return valid_cls_args
+
+
+    @classmethod
+    def run_command(cls, *args):
+        args_dict = parse_args_to_dict(*args)
+        args_dict = cls.validate_arguments(**args_dict)
+        api_call = cls.construct_api_call(**args_dict)
+        call_api_with_results(api_call)
+
+    @classmethod
+    def construct_api_call(cls, **kwargs):
+        api_route = cls._base_url
+        params = kwargs.pop('params', None)
+        if params:
+            for p in params:
+                api_route += '/' + p
+
+        query_args = ['%s=%s'%(k,v) for k,v in kwargs.iteritems()]
+        if len(query_args) > 0:
+            api_route += '?' + '&'.join(query_args)
+
+        return api_route
+
+
+class ExitCommand(Command):
+    _info_text = "Exits the program"
+
+    @classmethod
+    def run_command(cls, *args):
+        yes = set(['yes', 'y', 'ye', ''])
+        no = set(['no', 'n'])
+        choice = raw_input(colored.yellow('Are you sure you want to exit? [y/n] ')).lower()
+        if choice in yes:
+            exit()
+        elif choice in no:
+            return False
+        else:
+            cls.run_command()
+
+
+class HelpCommand(Command):
+    _info_text = "Returns help information for the program"
+
+    @classmethod
+    def run_command(cls, *args):
+        requested_keys = { k: True for k in args[0]}.keys()
+        all_supported_keys = [x for x in requested_keys if x in supported_commands]
+
+        if len(all_supported_keys):
+            # command(s) specified, print help for specified command
+            valid_help_keys = all_supported_keys
+
+            print colored.magenta('Parameters can be specified in order they should appear')
+            print colored.magenta('Arguments can be specified with "=" between key and value')
+            print colored.magenta('\te.g.\tevents 12 venue.state=NY')
+            print colored.magenta('\t[PARAMS]: 12 \t [ARGS]: { "venue.state": "NY" }')
+
+            for key in valid_help_keys:
+                if key == "help":
+                    print colored.cyan('  [%s] takes any of the following arguments' % key)
+                    all_args = [x for x in supported_commands.keys() if x != "help"]
+                    pprint(all_args, indent=8)
+
+                elif supported_commands[key]:
+                    supported_commands[key].get_help_text(name=key)
+        else:
+            # print supported commands
+            valid_help_keys = supported_commands.keys()
+
+            print colored.blue('  Type `help [command1] [command2] ...` to get more information.\n  The following commands are supported:')
+            for key in valid_help_keys:
+                print colored.cyan('  [%s] - %s' % (key, supported_commands[key].get_info_text()))
+
+
+
+class SetAPIKey(Command):
+    _info_text = "Sets the SeatGeek API client key"
+
+    @classmethod
+    def get_api_key(cls):
+        return _api_key
+
+    @classmethod
+    def run_command(cls, *args):
+        if len(args[0]) > 0:
+            _api_key = args[0][0]
+        else:
+            raise Exception('no api client key given')
+
 
 # class DependentArg(object):
 #     _exclusives = {
