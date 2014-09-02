@@ -5,7 +5,10 @@ import requests
 import json
 import readline
 import re
+import isodate
 from pprint import pprint
+
+import pdb
 
 from clint.textui import colored, indent, progress, puts
 
@@ -139,6 +142,7 @@ class Command(object):
     _pagination_args = ['per_page', 'page']
     _filtering_args = []
     _sorting_args = ['sort']
+    _possible_arguments = {}
 
     @classmethod
     def get_options(cls):
@@ -157,40 +161,47 @@ class Command(object):
         return cls._arguments
 
     @classmethod
-    def get_all_arguments(cls):
-        return cls._arguments + cls._geolocation_args + cls._pagination_args + cls._sorting_args
+    def get_all_possible_arguments(cls):
+        pass
 
     @classmethod
-    def whitelist_arguments(cls, **kwargs):
-        if 'param_id' in kwargs:
-            if not re.match('^\d+$', kwargs['param_id']):
-                raise Exception('invalid param id: %s. Numeric values only' % kwargs['param_id'])
-        else:
+    def validate_arguments(cls, **kwargs):
+        all_args = kwargs.iteritems()
+        possible_cls_args = cls.get_all_possible_arguments()
 
-            for key, value in kwargs.iteritems():
-                if (key not in cls._arguments and
-                   key not in cls._geolocation_arguments and
-                   key not in cls._pagination_args and
-                   key not in cls._sorting_args):
-                    raise Exception('invalid argument: <%s: %s>' % (key, value))
+        # valid_cls_args = {k:v for k,v in all_args if k in possible_cls_args
+        #                   and possible_cls_args[k](v)}
+
+        valid_cls_args = {}
+        for k,v in all_args:
+            if k in possible_cls_args:
+                validate_fn = possible_cls_args[k]
+                if validate_fn(v):
+                    valid_cls_args[k] = v
+                else:
+                    raise Exception('%s value: %s is not valid' % (k, v))
+
+        return valid_cls_args
+
 
     @classmethod
     def run_command(cls, *args):
         args_dict = parse_args_to_dict(*args)
-        cls.whitelist_arguments(**args_dict)
+        args_dict = cls.validate_arguments(**args_dict)
         api_call = cls.construct_api_call(**args_dict)
         call_api_with_results(api_call)
 
     @classmethod
     def construct_api_call(cls, **kwargs):
         api_route = cls._base_url
-        param_id = kwargs.pop('param_id', None)
-        if param_id:
-            api_route += '/' + param_id
-        else:
-            query_args = ['%s=%s'%(k,v) for k,v in kwargs.iteritems()]
-            if len(query_args) > 0:
-                api_route += '?' + '&'.join(query_args)
+        params = kwargs.pop('params', None)
+        if params:
+            for p in params:
+                api_route += '/' + p
+
+        query_args = ['%s=%s'%(k,v) for k,v in kwargs.iteritems()]
+        if len(query_args) > 0:
+            api_route += '?' + '&'.join(query_args)
 
         return api_route
 
@@ -199,6 +210,7 @@ class DateTime(object):
 
 class ExitCommand(Command):
     _info_text = "Exits the program"
+
     @classmethod
     def run_command(cls, *args):
         yes = set(['yes', 'y', 'ye', ''])
@@ -234,6 +246,9 @@ class HelpCommand(Command):
                     print colored.cyan('  [%s] takes any of the following arguments' % key)
                     all_args = [x for x in supported_commands.keys() if x != "help"]
                     pprint(all_args, indent=8)
+                elif key == "events":
+                    Event.get_help_text()
+
                 elif supported_commands[key]:
                     print colored.cyan('  [%s] takes any of the following arguments' % key)
                     all_args = supported_commands[key].get_all_arguments()
@@ -262,13 +277,102 @@ class SetAPIKey(Command):
         else:
             raise Exception('no api client key given')
 
+# regexes
+def is_numeric(val):
+    return re.match('^\d+$', val)
+
+def is_alphabetic(val):
+    return re.match('^[A-Za-z]+$', val)
+
+def is_us_state(val):
+    return re.match('^(A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|N[CDEHJMVY]|O[HKR]|P[AR]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY])$', val)
+
+def is_country_code(val):
+    return re.match('^(AF|AX|AL|DZ|AS|AD|AO|AI|AQ|AG|AR|AM|AW|AU|AT|AZ|BS|BH|BD|BB|BY|BE|BZ|BJ|BM|BT|BO|BQ|BA|BW|BV|BR|IO|BN|BG|BF|BI|KH|CM|CA|CV|KY|CF|TD|CL|CN|CX|CC|CO|KM|CG|CD|CK|CR|CI|HR|CU|CW|CY|CZ|DK|DJ|DM|DO|EC|EG|SV|GQ|ER|EE|ET|FK|FO|FJ|FI|FR|GF|PF|TF|GA|GM|GE|DE|GH|GI|GR|GL|GD|GP|GU|GT|GG|GN|GW|GY|HT|HM|VA|HN|HK|HU|IS|IN|ID|IR|IQ|IE|IM|IL|IT|JM|JP|JE|JO|KZ|KE|KI|KP|KR|KW|KG|LA|LV|LB|LS|LR|LY|LI|LT|LU|MO|MK|MG|MW|MY|MV|ML|MT|MH|MQ|MR|MU|YT|MX|FM|MD|MC|MN|ME|MS|MA|MZ|MM|NA|NR|NP|NL|NC|NZ|NI|NE|NG|NU|NF|MP|NO|OM|PK|PW|PS|PA|PG|PY|PE|PH|PN|PL|PT|PR|QA|RE|RO|RU|RW|BL|SH|KN|LC|MF|PM|VC|WS|SM|ST|SA|SN|RS|SC|SL|SG|SX|SK|SI|SB|SO|ZA|GS|SS|ES|LK|SD|SR|SJ|SZ|SE|CH|SY|TW|TJ|TZ|TH|TL|TG|TK|TO|TT|TN|TR|TM|TC|TV|UG|UA|AE|GB|US|UM|UY|UZ|VU|VE|VN|VG|VI|WF|EH|YE|ZM|ZW)$', val)
+
+def is_postal_code(val):
+    return re.match('^\d{5}$', val)
+
+def is_datetime(val):
+    if isodate.parse_datetime(val) or isodate.parse_date(val):
+        return True
+    else:
+        return False
+
+def is_novalidation(val):
+    return True
+
+def is_slug(val):
+    return re.match('^[\w\-]+$', val)
+
+def is_encoded_string(val):
+    return re.match('^[\w\+]+$', val)
+
+
 class Event(Command):
     _info_text = "Gets Events and returns JSON"
     _base_url = 'http://api.seatgeek.com/2/events'
-    _params = ['id']
-    _arguments = ['id', 'performers', 'venue', 'datetime', 'q', 'taxonomies']
-    _geolocation_args = ['geoip', 'lat', 'lon', 'range']
-    _filtering_args = ['listing_count', 'average_price', 'lowest_price', 'highest_price']
+    # _params = ['id']
+    # _arguments = ['id', 'performers', 'venue', 'datetime', 'q', 'taxonomies']
+    # _geolocation_args = ['geoip', 'lat', 'lon', 'range']
+    # _filtering_args = ['listing_count', 'average_price', 'lowest_price', 'highest_price']
+
+    _valid_operators = ['gt', 'gte', 'lt', 'lte']
+
+    # nonfull args
+    _datetime_args = ['datetime_local', 'datetime_utc']
+
+    _performers_args = ['performers']
+    _performers_specs = ['home_team', 'away_team', 'primary', 'any']
+    _performers_args_fields = {'id': is_numeric, 'slug': is_slug }
+
+    _venue_args = ['venue']
+
+    # _dependent_args = {
+    #     'lat': ('lon'),
+    #     'lon': ('lat'),
+    #     'range': ('geoip', ['lon', 'lat'])
+    #     }
+
+    _possible_args = {
+        'params': is_novalidation,
+        'id': is_numeric,
+        'q': is_encoded_string
+        }
+
+    @classmethod
+    def get_all_possible_arguments(cls):
+        "Gets all possible arguments with corresponding value validation function"
+
+        # pdb.set_trace()
+        possible_args = {k:v for k,v in cls._possible_args.iteritems()}
+
+        # add all datetime_args
+        for k in ['%s.%s' % (x,y) for x in cls._datetime_args for y in cls._valid_operators]:
+            possible_args[k] = is_datetime
+
+        # add all performer args
+        for m,n in [('%s.%s' % (x, y), y) for x in cls._performers_args for y in cls._performers_args_fields.keys()]:
+            possible_args[m] = cls._performers_args_fields[n]
+        # add all performer with specificity
+        performer_with_spec = [('%s[%s]' % (x, y)) for x in cls._performers_args for y in cls._performers_specs]
+        for m,n in [('%s.%s' % (x,y), y) for x in performer_with_spec for y in cls._performers_args_fields.keys()]:
+            possible_args[m] = cls._performers_args_fields[n]
+
+        # add venue args
+        venue_external_args = Venue.get_external_args()
+        for m,n in [('%s.%s' % (x,y), y) for x in cls._venue_args for y in venue_external_args.keys()]:
+            possible_args[m] = venue_external_args[n]
+
+        return possible_args
+
+
+    @classmethod
+    def get_help_text(cls):
+        print colored.cyan("The following is a list of all possible arguments for events")
+        for k in sorted(cls.get_all_possible_arguments().keys()):
+            print "\t <%s>" % k
+
 
 class Performer(Command):
     _info_text = "Gets Performers and returns JSON"
@@ -284,6 +388,20 @@ class Venue(Command):
     _params = ['id']
     _arguments = ['id', 'city', 'state', 'country', 'postal_code', 'q']
     _geolocation_args = ['geoip', 'lat', 'lon', 'range']
+
+    _possible_args = {
+        'params': is_novalidation,
+        'id': is_numeric,
+        'city': is_alphabetic,
+        'state': is_us_state,
+        'country': is_country_code,
+        'postal_code': is_postal_code,
+        'q': is_novalidation
+        }
+
+    @classmethod
+    def get_external_args(cls):
+        return {k:v for k,v in cls._possible_args.iteritems() if k != 'params'}
 
     fields = ['city', 'id', 'state']
 
