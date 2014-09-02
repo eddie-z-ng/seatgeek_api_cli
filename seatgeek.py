@@ -135,39 +135,32 @@ def parse_args_to_dict(arg_list):
 class Command(object):
     _info_text = "No information provided"
     _base_url = ''
-    _options = ['id']
-    _params = []
-    _arguments = ['id']
-    _geolocation_args = []
-    _pagination_args = ['per_page', 'page']
-    _filtering_args = []
-    _sorting_args = ['sort']
-    _possible_arguments = {}
-
-    @classmethod
-    def get_options(cls):
-        return cls._options
+    _default_args = {}
 
     @classmethod
     def get_info_text(cls):
         return cls._info_text
 
     @classmethod
-    def get_params(cls):
-        return cls._params
+    def get_all_default_args(cls):
+        possible_args = {k:v for k,v in cls._default_args.iteritems()}
+        return possible_args
 
     @classmethod
-    def get_arguments(cls):
-        return cls._arguments
-
-    @classmethod
-    def get_all_possible_arguments(cls):
-        pass
+    def get_help_text(cls, **kwargs):
+        all_possible_args = sorted(cls.get_all_default_args().keys())
+        name = kwargs.get('name', cls.__name__)
+        if len(all_possible_args) > 0:
+            print colored.cyan("Possible arguments for %s: " % name)
+            for k in sorted(cls.get_all_default_args().keys()):
+                print "\t <%s>" % k
+        else:
+            print colored.cyan("No arguments needed for %s" % name)
 
     @classmethod
     def validate_arguments(cls, **kwargs):
         all_args = kwargs.iteritems()
-        possible_cls_args = cls.get_all_possible_arguments()
+        possible_cls_args = cls.get_all_default_args()
 
         # valid_cls_args = {k:v for k,v in all_args if k in possible_cls_args
         #                   and possible_cls_args[k](v)}
@@ -205,8 +198,6 @@ class Command(object):
 
         return api_route
 
-class DateTime(object):
-    fields = ['datetime_local']
 
 class ExitCommand(Command):
     _info_text = "Exits the program"
@@ -238,21 +229,17 @@ class HelpCommand(Command):
 
             print colored.magenta('Parameters can be specified in order they should appear')
             print colored.magenta('Arguments can be specified with "=" between key and value')
-            print colored.magenta('\te.g.\tevents 12 geoip=true range=12mi')
-            print colored.magenta('\t [PARAMS]: 12 \t [ARGS]: { geoip: true, range: 12mi }')
+            print colored.magenta('\te.g.\tevents 12 venue.state=NY')
+            print colored.magenta('\t [PARAMS]: 12 \t [ARGS]: { "venue.state": "NY" }')
 
             for key in valid_help_keys:
                 if key == "help":
                     print colored.cyan('  [%s] takes any of the following arguments' % key)
                     all_args = [x for x in supported_commands.keys() if x != "help"]
                     pprint(all_args, indent=8)
-                elif key == "events":
-                    Event.get_help_text()
 
                 elif supported_commands[key]:
-                    print colored.cyan('  [%s] takes any of the following arguments' % key)
-                    all_args = supported_commands[key].get_all_arguments()
-                    pprint(all_args, indent=8)
+                    supported_commands[key].get_help_text(name=key)
         else:
             # print supported commands
             valid_help_keys = supported_commands.keys()
@@ -309,6 +296,11 @@ def is_encoded_string(val):
     return re.match('^[\w\+]+$', val)
 
 
+def merge_keys_across_fields(base_dict, end_dict, base_list):
+    for m,n in [('%s.%s' % (x, y), y) for x in base_list for y in end_dict.keys()]:
+        base_dict[m] = end_dict[n]
+
+
 class Event(Command):
     _info_text = "Gets Events and returns JSON"
     _base_url = 'http://api.seatgeek.com/2/events'
@@ -317,16 +309,15 @@ class Event(Command):
     # _geolocation_args = ['geoip', 'lat', 'lon', 'range']
     # _filtering_args = ['listing_count', 'average_price', 'lowest_price', 'highest_price']
 
-    _valid_operators = ['gt', 'gte', 'lt', 'lte']
-
-    # nonfull args
     _datetime_args = ['datetime_local', 'datetime_utc']
+    _valid_operators = ['gt', 'gte', 'lt', 'lte']
 
     _performers_args = ['performers']
     _performers_specs = ['home_team', 'away_team', 'primary', 'any']
     _performers_args_fields = {'id': is_numeric, 'slug': is_slug }
 
     _venue_args = ['venue']
+    _taxonomies_args = ['taxonomies']
 
     # _dependent_args = {
     #     'lat': ('lon'),
@@ -334,62 +325,72 @@ class Event(Command):
     #     'range': ('geoip', ['lon', 'lat'])
     #     }
 
-    _possible_args = {
+    _default_args = {
         'params': is_novalidation,
         'id': is_numeric,
         'q': is_encoded_string
         }
 
     @classmethod
-    def get_all_possible_arguments(cls):
+    def get_all_default_args(cls):
         "Gets all possible arguments with corresponding value validation function"
 
-        # pdb.set_trace()
-        possible_args = {k:v for k,v in cls._possible_args.iteritems()}
+        # get all default possible arguments
+        possible_args = super(Event,cls).get_all_default_args()
 
         # add all datetime_args
         for k in ['%s.%s' % (x,y) for x in cls._datetime_args for y in cls._valid_operators]:
             possible_args[k] = is_datetime
 
         # add all performer args
-        for m,n in [('%s.%s' % (x, y), y) for x in cls._performers_args for y in cls._performers_args_fields.keys()]:
-            possible_args[m] = cls._performers_args_fields[n]
+        merge_keys_across_fields(possible_args, cls._performers_args_fields, cls._performers_args)
+
         # add all performer with specificity
         performer_with_spec = [('%s[%s]' % (x, y)) for x in cls._performers_args for y in cls._performers_specs]
-        for m,n in [('%s.%s' % (x,y), y) for x in performer_with_spec for y in cls._performers_args_fields.keys()]:
-            possible_args[m] = cls._performers_args_fields[n]
+        merge_keys_across_fields(possible_args, cls._performers_args_fields, performer_with_spec)
 
-        # add venue args
+        # add all venue args
         venue_external_args = Venue.get_external_args()
-        for m,n in [('%s.%s' % (x,y), y) for x in cls._venue_args for y in venue_external_args.keys()]:
-            possible_args[m] = venue_external_args[n]
+        merge_keys_across_fields(possible_args, venue_external_args, cls._venue_args)
+
+        # add all taxonomies args
+        taxonomies_external_args = Taxonomy.get_external_args()
+        merge_keys_across_fields(possible_args, taxonomies_external_args, cls._taxonomies_args)
 
         return possible_args
-
-
-    @classmethod
-    def get_help_text(cls):
-        print colored.cyan("The following is a list of all possible arguments for events")
-        for k in sorted(cls.get_all_possible_arguments().keys()):
-            print "\t <%s>" % k
 
 
 class Performer(Command):
     _info_text = "Gets Performers and returns JSON"
     _base_url = 'http://api.seatgeek.com/2/performers'
-    _params = ['id']
-    _arguments = ['id', 'slug', 'q', 'taxonomies']
 
-    fields = ['id', 'slug']
+    _taxonomies_args = ['taxonomies']
+
+    _default_args = {
+        'params': is_novalidation,
+        'id': is_numeric,
+        'slug': is_slug,
+        'q': is_encoded_string,
+    }
+
+    @classmethod
+    def get_all_default_args(cls):
+        "Gets all possible arguments with corresponding value validation function"
+
+        # get all default possible arguments
+        possible_args = super(Performer, cls).get_all_default_args()
+
+        # add all taxonomies args
+        taxonomies_external_args = Taxonomy.get_external_args()
+        merge_keys_across_fields(possible_args, taxonomies_external_args, cls._taxonomies_args)
+
+        return possible_args
 
 class Venue(Command):
     _info_text = "Gets Venues and returns JSON"
     _base_url = 'http://api.seatgeek.com/2/venues'
-    _params = ['id']
-    _arguments = ['id', 'city', 'state', 'country', 'postal_code', 'q']
-    _geolocation_args = ['geoip', 'lat', 'lon', 'range']
 
-    _possible_args = {
+    _default_args = {
         'params': is_novalidation,
         'id': is_numeric,
         'city': is_alphabetic,
@@ -401,9 +402,8 @@ class Venue(Command):
 
     @classmethod
     def get_external_args(cls):
-        return {k:v for k,v in cls._possible_args.iteritems() if k != 'params'}
+        return {k:v for k,v in cls._default_args.iteritems() if k != 'params'}
 
-    fields = ['city', 'id', 'state']
 
 class Taxonomy(Command):
     _info_text = "Gets Taxonomies and returns JSON"
@@ -411,6 +411,14 @@ class Taxonomy(Command):
     _base_url = 'http://api.seatgeek.com/2/taxonomies'
 
     fields = ['name', 'id', 'parent_id']
+
+    _default_args = {}
+    _external_args_fields = { 'parent_id': is_numeric, 'id': is_numeric, 'name': is_alphabetic}
+
+    @classmethod
+    def get_external_args(cls):
+        return {k:v for k,v in cls._external_args_fields.iteritems()}
+
 
 # # requires Authentication
 # class Recommendation(Command):
