@@ -264,7 +264,17 @@ class SetAPIKey(Command):
         else:
             raise Exception('no api client key given')
 
-# regexes
+# validation functions
+def is_geoip(val):
+    if is_postal_code(val):
+        return True
+    if is_bool_str(val):
+        return True
+    return re.match('^(\d|[1-9]\d|1\d\d|2([0-4]\d|5[0-5]))\.(\d|[1-9]\d|1\d\d|2([0-4]\d|5[0-5]))\.(\d|[1-9]\d|1\d\d|2([0-4]\d|5[0-5]))\.(\d|[1-9]\d|1\d\d|2([0-4]\d|5[0-5]))$', val)
+
+def is_bool_str(val):
+    return re.match('^true|false$', val)
+
 def is_numeric(val):
     return re.match('^\d+$', val)
 
@@ -281,10 +291,18 @@ def is_postal_code(val):
     return re.match('^\d{5}$', val)
 
 def is_datetime(val):
-    if isodate.parse_datetime(val) or isodate.parse_date(val):
-        return True
-    else:
-        return False
+    try:
+        if isodate.parse_datetime(val):
+            return True
+    except Exception, e:
+        pass
+    try:
+        if isodate.parse_date(val):
+            return True
+    except Exception, e:
+        pass
+
+    return False
 
 def is_novalidation(val):
     return True
@@ -295,22 +313,62 @@ def is_slug(val):
 def is_encoded_string(val):
     return re.match('^[\w\+]+$', val)
 
+def is_sg_sort_with_date(val):
+    sort_fields = ['datetime_local', 'datetime_utc', 'announce_date', 'id', 'score']
+    valid_sort_params = is_sg_sort_helper(sort_fields)
+    return val in valid_sort_params
+
+def is_sg_sort(val):
+    sort_fields = ['id', 'score']
+    valid_sort_params = is_sg_sort_helper(sort_fields)
+    return val in valid_sort_params
+
+def is_sg_sort_helper(sort_fields):
+    sort_directions = ['asc', 'desc']
+    valid_sort_params = ['%s.%s' % (x,y) for x in sort_fields for y in sort_directions]
+    return valid_sort_params
+
+def is_lat_deg(val):
+    # ranges from -90.0 to 90.0
+    return re.match('^([-]?\d{1,2}([.]\d+)?)$', val)
+
+def is_lon_deg(val):
+    # ranges from -180.0 to 180.0
+    return re.match('^([-]?\d{1,3}([.]\d+)?)$', val)
+
+def is_range_str(val):
+    return re.match('^(\d+(km|mi))$', val)
+
+# class DependentArg(object):
+#     _exclusives = {
+#         'geoip': ['lat', 'lon'],
+#         'lat': ['geoip'],
+#         'lon': ['geoip']
+#     }
+
+#     _dependents = {
+#         'lat': ['lon'],
+#         'lon': ['lat'],
+#         'range': ['']
+#     }
 
 def merge_keys_across_fields(base_dict, end_dict, base_list):
     for m,n in [('%s.%s' % (x, y), y) for x in base_list for y in end_dict.keys()]:
         base_dict[m] = end_dict[n]
 
-
 class Event(Command):
     _info_text = "Gets Events and returns JSON"
     _base_url = 'http://api.seatgeek.com/2/events'
-    # _params = ['id']
-    # _arguments = ['id', 'performers', 'venue', 'datetime', 'q', 'taxonomies']
-    # _geolocation_args = ['geoip', 'lat', 'lon', 'range']
-    # _filtering_args = ['listing_count', 'average_price', 'lowest_price', 'highest_price']
 
-    _datetime_args = ['datetime_local', 'datetime_utc']
+    # _dependent_args = {
+    #     'lat': ('lon'),
+    #     'lon': ('lat')
+    #     'range': ('geoip')
+    #     }
+
     _valid_operators = ['gt', 'gte', 'lt', 'lte']
+    _filtering_args = ['listing_count', 'average_price', 'lowest_price', 'highest_price']
+    _datetime_args = ['datetime_local', 'datetime_utc']
 
     _performers_args = ['performers']
     _performers_specs = ['home_team', 'away_team', 'primary', 'any']
@@ -319,16 +377,19 @@ class Event(Command):
     _venue_args = ['venue']
     _taxonomies_args = ['taxonomies']
 
-    # _dependent_args = {
-    #     'lat': ('lon'),
-    #     'lon': ('lat'),
-    #     'range': ('geoip', ['lon', 'lat'])
-    #     }
-
     _default_args = {
         'params': is_novalidation,
         'id': is_numeric,
-        'q': is_encoded_string
+        'q': is_encoded_string,
+        'per_page': is_numeric,
+        'page': is_numeric,
+        'sort': is_sg_sort_with_date,
+        'aid': is_numeric,
+        'rid': is_numeric,
+        'geoip': is_geoip,
+        'lat': is_lat_deg,
+        'lon': is_lon_deg,
+        'range': is_range_str
         }
 
     @classmethod
@@ -338,7 +399,13 @@ class Event(Command):
         # get all default possible arguments
         possible_args = super(Event,cls).get_all_default_args()
 
-        # add all datetime_args
+        # add all filtering_args -- should be numeric
+        for k in ['%s.%s' % (x,y) for x in cls._filtering_args for y in cls._valid_operators]:
+            possible_args[k] = is_numeric
+
+        # add all datetime_args -- should be datetime
+        for k in cls._datetime_args:
+            possible_args[k] = is_datetime
         for k in ['%s.%s' % (x,y) for x in cls._datetime_args for y in cls._valid_operators]:
             possible_args[k] = is_datetime
 
@@ -371,6 +438,11 @@ class Performer(Command):
         'id': is_numeric,
         'slug': is_slug,
         'q': is_encoded_string,
+        'per_page': is_numeric,
+        'page': is_numeric,
+        'sort': is_sg_sort,
+        'aid': is_numeric,
+        'rid': is_numeric
     }
 
     @classmethod
@@ -397,7 +469,12 @@ class Venue(Command):
         'state': is_us_state,
         'country': is_country_code,
         'postal_code': is_postal_code,
-        'q': is_novalidation
+        'q': is_novalidation,
+        'per_page': is_numeric,
+        'page': is_numeric,
+        'sort': is_sg_sort,
+        'aid': is_numeric,
+        'rid': is_numeric
         }
 
     @classmethod
@@ -409,8 +486,6 @@ class Taxonomy(Command):
     _info_text = "Gets Taxonomies and returns JSON"
 
     _base_url = 'http://api.seatgeek.com/2/taxonomies'
-
-    fields = ['name', 'id', 'parent_id']
 
     _default_args = {}
     _external_args_fields = { 'parent_id': is_numeric, 'id': is_numeric, 'name': is_alphabetic}
