@@ -169,10 +169,12 @@ class Command(object):
         for k,v in all_args:
             if k in possible_cls_args:
                 validate_fn = possible_cls_args[k]
-                if validate_fn(v):
-                    valid_cls_args[k] = v
-                else:
-                    raise Exception('%s value: %s is not valid' % (k, v))
+
+                try:
+                    if validate_fn(v):
+                        valid_cls_args[k] = v
+                except Exception, e:
+                    raise Exception('  %s: %s' % (k, e))
 
         return valid_cls_args
 
@@ -264,7 +266,24 @@ class SetAPIKey(Command):
         else:
             raise Exception('no api client key given')
 
+
+def raise_validation_text(func):
+    def inner(val):
+        res = func(val)
+        if not res:
+            raise Exception('%s [X] %s' % (val, func.__doc__))
+        return res
+    return inner
+
+def add_doc(value):
+    def _doc(func):
+        func.__doc__ = value
+        return func
+    return _doc
+
 # validation functions
+@raise_validation_text
+@add_doc('Should be a postal code, true/false, or an IP address')
 def is_geoip(val):
     if is_postal_code(val):
         return True
@@ -272,24 +291,36 @@ def is_geoip(val):
         return True
     return re.match('^(\d|[1-9]\d|1\d\d|2([0-4]\d|5[0-5]))\.(\d|[1-9]\d|1\d\d|2([0-4]\d|5[0-5]))\.(\d|[1-9]\d|1\d\d|2([0-4]\d|5[0-5]))\.(\d|[1-9]\d|1\d\d|2([0-4]\d|5[0-5]))$', val)
 
+@raise_validation_text
+@add_doc('Should be true/false')
 def is_bool_str(val):
     return re.match('^true|false$', val)
 
+@raise_validation_text
+@add_doc('Should be numeric')
 def is_numeric(val):
     return re.match('^\d+$', val)
 
+@raise_validation_text
+@add_doc('Should be letters')
 def is_alphabetic(val):
     return re.match('^[A-Za-z]+$', val)
 
+@raise_validation_text
+@add_doc('Should be two-letter US state code')
 def is_us_state(val):
     return re.match('^(A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|N[CDEHJMVY]|O[HKR]|P[AR]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY])$', val)
 
 def is_country_code(val):
     return re.match('^(AF|AX|AL|DZ|AS|AD|AO|AI|AQ|AG|AR|AM|AW|AU|AT|AZ|BS|BH|BD|BB|BY|BE|BZ|BJ|BM|BT|BO|BQ|BA|BW|BV|BR|IO|BN|BG|BF|BI|KH|CM|CA|CV|KY|CF|TD|CL|CN|CX|CC|CO|KM|CG|CD|CK|CR|CI|HR|CU|CW|CY|CZ|DK|DJ|DM|DO|EC|EG|SV|GQ|ER|EE|ET|FK|FO|FJ|FI|FR|GF|PF|TF|GA|GM|GE|DE|GH|GI|GR|GL|GD|GP|GU|GT|GG|GN|GW|GY|HT|HM|VA|HN|HK|HU|IS|IN|ID|IR|IQ|IE|IM|IL|IT|JM|JP|JE|JO|KZ|KE|KI|KP|KR|KW|KG|LA|LV|LB|LS|LR|LY|LI|LT|LU|MO|MK|MG|MW|MY|MV|ML|MT|MH|MQ|MR|MU|YT|MX|FM|MD|MC|MN|ME|MS|MA|MZ|MM|NA|NR|NP|NL|NC|NZ|NI|NE|NG|NU|NF|MP|NO|OM|PK|PW|PS|PA|PG|PY|PE|PH|PN|PL|PT|PR|QA|RE|RO|RU|RW|BL|SH|KN|LC|MF|PM|VC|WS|SM|ST|SA|SN|RS|SC|SL|SG|SX|SK|SI|SB|SO|ZA|GS|SS|ES|LK|SD|SR|SJ|SZ|SE|CH|SY|TW|TJ|TZ|TH|TL|TG|TK|TO|TT|TN|TR|TM|TC|TV|UG|UA|AE|GB|US|UM|UY|UZ|VU|VE|VN|VG|VI|WF|EH|YE|ZM|ZW)$', val)
 
+@raise_validation_text
+@add_doc('Should be a US/Canada postal code')
 def is_postal_code(val):
     return re.match('^\d{5}$', val)
 
+@raise_validation_text
+@add_doc('Should be ISO 8601 date "YYYY-MM-DDTHH:MM:SS" or "YYYY-MM-DD"')
 def is_datetime(val):
     try:
         if isodate.parse_datetime(val):
@@ -307,17 +338,25 @@ def is_datetime(val):
 def is_novalidation(val):
     return True
 
+@raise_validation_text
+@add_doc('Should be string with "-" instead of spaces')
 def is_slug(val):
     return re.match('^[\w\-]+$', val)
 
+@raise_validation_text
+@add_doc('Should be string with "+" instead of spaces')
 def is_encoded_string(val):
     return re.match('^[\w\+]+$', val)
 
+@raise_validation_text
+@add_doc('Should be one of (datetime_local, datetime_utc, announce_date, id, score) followed by .asc or .desc')
 def is_sg_sort_with_date(val):
     sort_fields = ['datetime_local', 'datetime_utc', 'announce_date', 'id', 'score']
     valid_sort_params = is_sg_sort_helper(sort_fields)
     return val in valid_sort_params
 
+@raise_validation_text
+@add_doc('Should be one of (announce_date, id, score) followed by .asc or .desc')
 def is_sg_sort(val):
     sort_fields = ['id', 'score']
     valid_sort_params = is_sg_sort_helper(sort_fields)
@@ -328,14 +367,20 @@ def is_sg_sort_helper(sort_fields):
     valid_sort_params = ['%s.%s' % (x,y) for x in sort_fields for y in sort_directions]
     return valid_sort_params
 
+@raise_validation_text
+@add_doc('Should be a decimal between -90.0000 and 90.0000')
 def is_lat_deg(val):
     # ranges from -90.0 to 90.0
     return re.match('^([-]?\d{1,2}([.]\d+)?)$', val)
 
+@raise_validation_text
+@add_doc('Should be a decimal between -180.0000 and 180.0000')
 def is_lon_deg(val):
     # ranges from -180.0 to 180.0
     return re.match('^([-]?\d{1,3}([.]\d+)?)$', val)
 
+@raise_validation_text
+@add_doc('Should be integer followed by mi or km')
 def is_range_str(val):
     return re.match('^(\d+(km|mi))$', val)
 
@@ -531,6 +576,6 @@ if __name__ == '__main__':
                     supported_commands[command].run_command(args)
 
                 except Exception, e:
-                    print colored.red('<%s>. Please try again.' % e)
+                    print colored.red('  %s. Please try again.' % e)
             else:
                 print colored.red('invalid command')
